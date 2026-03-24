@@ -36,9 +36,10 @@ echo.
 REM Open the director view in the browser after a 3-second delay (background)
 start /b cmd /c "timeout /t 3 /nobreak > nul && start http://localhost:5000/director"
 
-REM Run the server in this window (blocks until closed)
+REM Set production mode and run the server in this window (blocks until closed)
 REM Closing the window = stopping the server
-call npm start
+set NODE_ENV=production
+call npx tsx server/index.ts
 
 echo.
 echo  ChurchStand has stopped.
