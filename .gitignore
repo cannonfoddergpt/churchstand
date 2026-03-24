@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-server/
+.env
+setlist.json
+setlist.json.tmp
+*.local
+.gstack/
