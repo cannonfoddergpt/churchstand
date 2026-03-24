@@ -195,19 +195,42 @@ export function MusicianView() {
         myProfile={myProfile}
       />
       <div style={styles.content}>
-        {allSections.length === 0 ? (
+        {setlist.songs.length === 0 ? (
           <div style={styles.waiting}>No songs in the setlist yet.</div>
         ) : (
-          allSections.map(({ section, song }) => (
-            <SectionCard
-              key={section.id}
-              section={section}
-              song={song}
-              isActive={section.id === activeSectionId}
-              instrument={instrument}
-              displayFormat={displayFormat}
-            />
-          ))
+          setlist.songs.map((song, idx) => {
+            const bridge = idx > 0
+              ? setlist.bridges.find(
+                  (b) => b.fromSongId === setlist.songs[idx - 1].id && b.toSongId === song.id && b.accepted,
+                )
+              : undefined
+            return (
+              <div key={song.id}>
+                {bridge && (
+                  <div style={styles.bridgeCard}>
+                    <span style={styles.bridgeLabel}>Bridge →</span>
+                    {transposeChordsForDisplay(bridge.chordsInConcert, instrument).map((chord, i) => (
+                      <span key={i} style={styles.bridgeChord}>{chord}</span>
+                    ))}
+                  </div>
+                )}
+                {song.sectionOrder.map((sectionId) => {
+                  const section = song.sections.find((s) => s.id === sectionId)
+                  if (!section) return null
+                  return (
+                    <SectionCard
+                      key={section.id}
+                      section={section}
+                      song={song}
+                      isActive={section.id === activeSectionId}
+                      instrument={instrument}
+                      displayFormat={displayFormat}
+                    />
+                  )
+                })}
+              </div>
+            )
+          })
         )}
       </div>
     </div>
@@ -330,4 +353,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
   lyrics: { fontSize: 16, lineHeight: 1.6, color: '#333', whiteSpace: 'pre-wrap' },
   waiting: { textAlign: 'center', marginTop: 80, fontSize: 16, color: '#999' },
+  bridgeCard: {
+    display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+    padding: '8px 12px', marginBottom: 8, background: '#fffbeb',
+    border: '1px solid #fde68a', borderRadius: 8,
+  },
+  bridgeLabel: { fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', marginRight: 4 },
+  bridgeChord: {
+    fontSize: 18, fontWeight: 700, color: '#92400e',
+    background: '#fef3c7', padding: '3px 8px', borderRadius: 5,
+  },
 }

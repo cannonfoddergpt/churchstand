@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useSetlistStore } from '../../store/setlist'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { ConnectionBanner } from '../shared/ConnectionBanner'
-import { Song, SongSection, Setlist, MusicianProfile } from '../../types'
+import { Song, SongSection, Setlist, MusicianProfile, BridgeChords } from '../../types'
 
 // ─── Responsive width hook ────────────────────────────────────────────────────
 
@@ -27,6 +27,123 @@ function useIsNarrow(breakpoint = 768) {
     () => window.innerWidth < breakpoint,
     () => false,
   )
+}
+
+// ─── Bridge suggester ─────────────────────────────────────────────────────────
+
+function BridgeSuggester({
+  fromSong,
+  toSong,
+  existingBridge,
+  onAccept,
+  onRemove,
+}: {
+  fromSong: Song
+  toSong: Song
+  existingBridge: BridgeChords | undefined
+  onAccept: (chords: string[]) => void
+  onRemove: () => void
+}) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'preview' | 'error'>('idle')
+  const [preview, setPreview] = useState<string[]>([])
+  const [errorMsg, setErrorMsg] = useState('')
+
+  async function suggest() {
+    setStatus('loading')
+    setErrorMsg('')
+    try {
+      const res = await fetch('/api/suggest-bridge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromKey: fromSong.concertKey,
+          toKey: toSong.concertKey,
+          fromSongTitle: fromSong.title,
+          toSongTitle: toSong.title,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErrorMsg(data.error ?? 'Server error'); setStatus('error'); return }
+      setPreview(data.chords)
+      setStatus('preview')
+    } catch {
+      setErrorMsg('Network error — is the server running?')
+      setStatus('error')
+    }
+  }
+
+  if (existingBridge?.accepted) {
+    return (
+      <div style={bridgeStyles.accepted}>
+        <span style={bridgeStyles.acceptedLabel}>Bridge →</span>
+        <span style={bridgeStyles.acceptedChords}>{existingBridge.chordsInConcert.join(' · ')}</span>
+        <button style={bridgeStyles.removeBtn} onClick={onRemove} title="Remove bridge">×</button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={bridgeStyles.row}>
+      {status === 'idle' && (
+        <button style={bridgeStyles.suggestBtn} onClick={suggest}>✦ Suggest bridge</button>
+      )}
+      {status === 'loading' && (
+        <span style={bridgeStyles.loading}>Thinking…</span>
+      )}
+      {status === 'error' && (
+        <span style={bridgeStyles.error}>{errorMsg} <button style={bridgeStyles.retryBtn} onClick={suggest}>Retry</button></span>
+      )}
+      {status === 'preview' && (
+        <div style={bridgeStyles.preview}>
+          <span style={bridgeStyles.previewChords}>{preview.join(' · ')}</span>
+          <button style={bridgeStyles.acceptBtn} onClick={() => { onAccept(preview); setStatus('idle') }}>Accept</button>
+          <button style={bridgeStyles.dismissBtn} onClick={() => setStatus('idle')}>Dismiss</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const bridgeStyles: Record<string, React.CSSProperties> = {
+  row: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '3px 12px',
+  },
+  suggestBtn: {
+    fontSize: 11, color: '#888', background: 'none', border: '1px dashed #ccc',
+    borderRadius: 12, padding: '3px 10px', cursor: 'pointer',
+  },
+  loading: { fontSize: 11, color: '#aaa', fontStyle: 'italic' },
+  error: { fontSize: 11, color: '#ef4444' },
+  retryBtn: { marginLeft: 6, fontSize: 11, background: 'none', border: 'none', color: '#888', cursor: 'pointer', textDecoration: 'underline' },
+  preview: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const },
+  previewChords: {
+    fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
+    background: '#fffbeb', border: '1px solid #fde68a',
+    padding: '3px 10px', borderRadius: 6, color: '#92400e',
+  },
+  acceptBtn: {
+    fontSize: 11, background: '#d1fae5', color: '#065f46',
+    border: 'none', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontWeight: 700,
+  },
+  dismissBtn: {
+    fontSize: 11, background: 'none', color: '#aaa',
+    border: 'none', cursor: 'pointer',
+  },
+  accepted: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '4px 12px', fontSize: 12,
+  },
+  acceptedLabel: { color: '#999', fontWeight: 600 },
+  acceptedChords: {
+    fontFamily: 'monospace', fontWeight: 700, color: '#92400e',
+    background: '#fffbeb', border: '1px solid #fde68a',
+    padding: '2px 8px', borderRadius: 5,
+  },
+  removeBtn: {
+    background: 'none', border: 'none', color: '#ccc',
+    cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px',
+  },
 }
 
 // ─── Sortable section row ─────────────────────────────────────────────────────
@@ -406,19 +523,53 @@ export function DirectorView() {
           <span style={styles.appName}>ChurchStand</span>
           <button style={styles.addSongBtn} onClick={addSong}>+ Song</button>
         </div>
-        {setlist.songs.map((song) => (
-          <div
-            key={song.id}
-            style={{
-              ...styles.songListItem,
-              ...(selectedSongId === song.id ? styles.songListItemActive : {}),
-            }}
-          >
-            <button style={styles.songListItemBtn} onClick={() => setSelectedSongId(song.id)}>
-              <span>{song.title}</span>
-              <span style={styles.keyTag}>{song.concertKey}</span>
-            </button>
-            <button style={styles.deleteSongBtn} onClick={() => deleteSong(song.id)} title="Delete song">×</button>
+        {setlist.songs.map((song, idx) => (
+          <div key={song.id}>
+            {idx > 0 && (
+              <BridgeSuggester
+                fromSong={setlist.songs[idx - 1]}
+                toSong={song}
+                existingBridge={setlist.bridges.find(
+                  (b) => b.fromSongId === setlist.songs[idx - 1].id && b.toSongId === song.id,
+                )}
+                onAccept={(chords) => {
+                  const existing = setlist.bridges.find(
+                    (b) => b.fromSongId === setlist.songs[idx - 1].id && b.toSongId === song.id,
+                  )
+                  const newBridge: BridgeChords = {
+                    id: existing?.id ?? crypto.randomUUID(),
+                    fromSongId: setlist.songs[idx - 1].id,
+                    toSongId: song.id,
+                    chordsInConcert: chords,
+                    aiGenerated: true,
+                    accepted: true,
+                  }
+                  const bridges = setlist.bridges.filter(
+                    (b) => !(b.fromSongId === setlist.songs[idx - 1].id && b.toSongId === song.id),
+                  )
+                  sendMutate({ bridges: [...bridges, newBridge] })
+                }}
+                onRemove={() => {
+                  sendMutate({
+                    bridges: setlist.bridges.filter(
+                      (b) => !(b.fromSongId === setlist.songs[idx - 1].id && b.toSongId === song.id),
+                    ),
+                  })
+                }}
+              />
+            )}
+            <div
+              style={{
+                ...styles.songListItem,
+                ...(selectedSongId === song.id ? styles.songListItemActive : {}),
+              }}
+            >
+              <button style={styles.songListItemBtn} onClick={() => setSelectedSongId(song.id)}>
+                <span>{song.title}</span>
+                <span style={styles.keyTag}>{song.concertKey}</span>
+              </button>
+              <button style={styles.deleteSongBtn} onClick={() => deleteSong(song.id)} title="Delete song">×</button>
+            </div>
           </div>
         ))}
         {setlist.songs.length === 0 && (
