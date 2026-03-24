@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -18,6 +18,16 @@ import { useSetlistStore } from '../../store/setlist'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { ConnectionBanner } from '../shared/ConnectionBanner'
 import { Song, SongSection, Setlist, MusicianProfile } from '../../types'
+
+// ─── Responsive width hook ────────────────────────────────────────────────────
+
+function useIsNarrow(breakpoint = 768) {
+  return useSyncExternalStore(
+    (cb) => { window.addEventListener('resize', cb); return () => window.removeEventListener('resize', cb) },
+    () => window.innerWidth < breakpoint,
+    () => false,
+  )
+}
 
 // ─── Sortable section row ─────────────────────────────────────────────────────
 
@@ -301,6 +311,7 @@ function UsersSidebar({
 export function DirectorView() {
   const { send } = useWebSocket()
   const { setlist, myProfile, setMyProfile } = useSetlistStore()
+  const isNarrow = useIsNarrow()
   const [selectedSongId, setSelectedSongId] = useState<string | null>(
     setlist.songs[0]?.id ?? null,
   )
@@ -329,6 +340,17 @@ export function DirectorView() {
 
   function sendActiveSection(songId: string, sectionId: string | null) {
     send({ type: 'set_active_section', userId, songId, sectionId })
+  }
+
+  function deleteSong(songId: string) {
+    const remaining = setlist.songs.filter((s) => s.id !== songId)
+    sendMutate({ songs: remaining })
+    if (selectedSongId === songId) {
+      setSelectedSongId(remaining[0]?.id ?? null)
+    }
+    if (setlist.activeSongId === songId) {
+      send({ type: 'set_active_section', userId, songId, sectionId: null })
+    }
   }
 
   function addSong() {
@@ -375,7 +397,7 @@ export function DirectorView() {
   }
 
   return (
-    <div style={styles.layout} tabIndex={0} onKeyDown={handleKeyDown}>
+    <div style={{ ...styles.layout, gridTemplateColumns: isNarrow ? '1fr' : '220px 1fr 240px', gridTemplateRows: isNarrow ? 'auto 1fr auto' : '1fr' }} tabIndex={0} onKeyDown={handleKeyDown}>
       <ConnectionBanner />
 
       {/* Left: song list */}
@@ -385,17 +407,19 @@ export function DirectorView() {
           <button style={styles.addSongBtn} onClick={addSong}>+ Song</button>
         </div>
         {setlist.songs.map((song) => (
-          <button
+          <div
             key={song.id}
             style={{
               ...styles.songListItem,
               ...(selectedSongId === song.id ? styles.songListItemActive : {}),
             }}
-            onClick={() => setSelectedSongId(song.id)}
           >
-            <span>{song.title}</span>
-            <span style={styles.keyTag}>{song.concertKey}</span>
-          </button>
+            <button style={styles.songListItemBtn} onClick={() => setSelectedSongId(song.id)}>
+              <span>{song.title}</span>
+              <span style={styles.keyTag}>{song.concertKey}</span>
+            </button>
+            <button style={styles.deleteSongBtn} onClick={() => deleteSong(song.id)} title="Delete song">×</button>
+          </div>
         ))}
         {setlist.songs.length === 0 && (
           <p style={styles.emptySongs}>No songs yet. Add one to get started.</p>
@@ -458,11 +482,19 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
   },
   songListItem: {
+    display: 'flex', alignItems: 'center',
+    background: 'none', color: '#ccc', fontSize: 13,
+  },
+  songListItemBtn: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '11px 12px', background: 'none', border: 'none', color: '#ccc',
-    textAlign: 'left', cursor: 'pointer', fontSize: 13, width: '100%',
+    flex: 1, padding: '11px 12px', background: 'none', border: 'none', color: 'inherit',
+    textAlign: 'left', cursor: 'pointer', fontSize: 13, minWidth: 0,
   },
   songListItemActive: { background: 'rgba(255,255,255,0.12)', color: '#fff' },
+  deleteSongBtn: {
+    background: 'none', border: 'none', color: '#666', cursor: 'pointer',
+    fontSize: 18, padding: '0 10px', lineHeight: 1, flexShrink: 0,
+  },
   keyTag: {
     fontSize: 11, background: 'rgba(255,255,255,0.2)', padding: '1px 6px',
     borderRadius: 3, fontWeight: 600, flexShrink: 0,
