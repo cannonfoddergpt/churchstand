@@ -18,6 +18,7 @@ import { useSetlistStore } from '../../store/setlist'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { ConnectionBanner } from '../shared/ConnectionBanner'
 import { Song, SongSection, Setlist, MusicianProfile, BridgeChords } from '../../types'
+import { suggestBridge } from '../../lib/bridgeSuggester'
 
 // ─── Responsive width hook ────────────────────────────────────────────────────
 
@@ -48,28 +49,15 @@ function BridgeSuggester({
   const [preview, setPreview] = useState<string[]>([])
   const [errorMsg, setErrorMsg] = useState('')
 
-  async function suggest() {
-    setStatus('loading')
-    setErrorMsg('')
-    try {
-      const res = await fetch('/api/suggest-bridge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromKey: fromSong.concertKey,
-          toKey: toSong.concertKey,
-          fromSongTitle: fromSong.title,
-          toSongTitle: toSong.title,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setErrorMsg(data.error ?? 'Server error'); setStatus('error'); return }
-      setPreview(data.chords)
-      setStatus('preview')
-    } catch {
-      setErrorMsg('Network error — is the server running?')
+  function suggest() {
+    const chords = suggestBridge(fromSong.concertKey, toSong.concertKey)
+    if (!chords.length) {
+      setErrorMsg(`Unknown key: ${fromSong.concertKey} or ${toSong.concertKey}`)
       setStatus('error')
+      return
     }
+    setPreview(chords)
+    setStatus('preview')
   }
 
   if (existingBridge?.accepted) {

@@ -4,7 +4,6 @@ import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
 import { networkInterfaces } from 'os'
 import qrcode from 'qrcode-terminal'
-import Anthropic from '@anthropic-ai/sdk'
 import { loadState, saveState } from './state'
 import { canMutate, canManagePermissions, isLocalhost } from './permissions'
 import {
@@ -23,15 +22,9 @@ const PORT = parseInt(process.env.PORT ?? (IS_PROD ? '5000' : '3001'), 10)
 // ─── App setup ────────────────────────────────────────────────────────────────
 
 const app = express()
-app.use(express.json())
 const server = createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws' })
 
-// ─── Anthropic client (lazy — only used when API key is set) ──────────────────
-
-const anthropic = process.env.ANTHROPIC_API_KEY
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : null
 
 // In production: serve the Vite build. In dev: Vite handles static files itself.
 if (IS_PROD) {
@@ -39,64 +32,6 @@ if (IS_PROD) {
   app.use(express.static(distPath))
   app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')))
 }
-
-// ─── Bridge suggestion endpoint ───────────────────────────────────────────────
-
-app.post('/api/suggest-bridge', async (req, res) => {
-  if (!anthropic) {
-    res.status(503).json({ error: 'ANTHROPIC_API_KEY not set on this server.' })
-    return
-  }
-
-  const { fromKey, toKey, fromSongTitle, toSongTitle } = req.body as {
-    fromKey: string
-    toKey: string
-    fromSongTitle: string
-    toSongTitle: string
-  }
-
-  if (!fromKey || !toKey) {
-    res.status(400).json({ error: 'fromKey and toKey are required' })
-    return
-  }
-
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
-      system: `You are a music theory assistant for a worship band director.
-Your task: suggest a 4-bar chord progression (in concert pitch) that bridges
-between two songs. Return ONLY a JSON array of chord names, no explanation.
-Rules:
-- Exactly 4 chords (one per bar)
-- Use standard chord symbols: C, Dm, G7, Fmaj7, Am, Bb, etc.
-- The progression must start near the key of the first song and resolve
-  naturally into the key of the second song
-- Keep it simple — this is for live worship musicians reading charts`,
-      messages: [
-        {
-          role: 'user',
-          content: `Song ending: "${fromSongTitle}" in ${fromKey}
-Song starting: "${toSongTitle}" in ${toKey}
-Return a 4-bar bridge progression as a JSON array, e.g. ["D","G","A","D"]`,
-        },
-      ],
-    })
-
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    // Extract JSON array from the response (handle any surrounding text)
-    const match = text.match(/\[[\s\S]*\]/)
-    if (!match) {
-      res.status(500).json({ error: 'Model returned unexpected format', raw: text })
-      return
-    }
-    const chords: string[] = JSON.parse(match[0])
-    res.json({ chords })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    res.status(500).json({ error: message })
-  }
-})
 
 // ─── Canonical state ──────────────────────────────────────────────────────────
 
